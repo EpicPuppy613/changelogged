@@ -15,39 +15,4 @@
 	<img alt="💪 TypeScript: Strict" src="https://img.shields.io/badge/%F0%9F%92%AA_typescript-strict-21bb42.svg" />
 </p>
 
-## Usage
-
-```shell
-npm i changelogged
-```
-
-```ts
-import { greet } from "changelogged";
-
-greet("Hello, world! 💖");
-```
-
-## Contributors
-
-<!-- spellchecker: disable -->
-<!-- ALL-CONTRIBUTORS-LIST:START - Do not remove or modify this section -->
-<!-- prettier-ignore-start -->
-<!-- markdownlint-disable -->
-<table>
-  <tbody>
-    <tr>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/EpicPuppy613"><img src="https://avatars.githubusercontent.com/u/61771471?v=4?s=100" width="100px;" alt="EpicPuppy613"/><br /><sub><b>EpicPuppy613</b></sub></a><br /><a href="https://github.com/EpicPuppy613/changelogged/commits?author=EpicPuppy613" title="Code">💻</a> <a href="#content-EpicPuppy613" title="Content">🖋</a> <a href="https://github.com/EpicPuppy613/changelogged/commits?author=EpicPuppy613" title="Documentation">📖</a> <a href="#ideas-EpicPuppy613" title="Ideas, Planning, & Feedback">🤔</a> <a href="#infra-EpicPuppy613" title="Infrastructure (Hosting, Build-Tools, etc)">🚇</a> <a href="#maintenance-EpicPuppy613" title="Maintenance">🚧</a> <a href="#projectManagement-EpicPuppy613" title="Project Management">📆</a> <a href="#tool-EpicPuppy613" title="Tools">🔧</a></td>
-      <td align="center" valign="top" width="14.28%"><a href="http://www.joshuakgoldberg.com/"><img src="https://avatars.githubusercontent.com/u/3335181?v=4?s=100" width="100px;" alt="Josh Goldberg ✨"/><br /><sub><b>Josh Goldberg ✨</b></sub></a><br /><a href="#tool-JoshuaKGoldberg" title="Tools">🔧</a></td>
-    </tr>
-  </tbody>
-</table>
-
-<!-- markdownlint-restore -->
-<!-- prettier-ignore-end -->
-
-<!-- ALL-CONTRIBUTORS-LIST:END -->
-<!-- spellchecker: enable -->
-
-<!-- You can remove this notice if you don't want it 🙂 no worries! -->
-
 > 💙 This package was templated with [`create-typescript-app`](https://github.com/JoshuaKGoldberg/create-typescript-app).
