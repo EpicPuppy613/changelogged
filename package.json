@@ -11,7 +11,8 @@
 		"email": "epicpuppy@epicpuppy.dev"
 	},
 	"type": "module",
-	"main": "./lib/index.js",
+	"main": "./run/index.js",
+	"bin": "./run/index.js",
 	"files": [
 		"lib/",
 		"package.json",
@@ -29,6 +30,12 @@
 	},
 	"lint-staged": {
 		"*": "prettier --ignore-unknown --write"
+	},
+	"dependencies": {
+		"@inquirer/prompts": "^6.0.1",
+		"chalk": "^5.3.0",
+		"mwn": "^2.0.3",
+		"ora": "^8.1.0"
 	},
 	"devDependencies": {
 		"@eslint/js": "^9.11.1",
