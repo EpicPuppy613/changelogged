@@ -5,6 +5,8 @@ import { Chalk } from "chalk";
 
 const ch = new Chalk();
 
+const FORCE_UPDATE = false;
+
 // Read config file
 const config = JSON.parse(readFileSync("./config.json", "utf-8")) as {
 	username?: string;
@@ -28,6 +30,10 @@ const bot = await Mwn.init({
 
 	userAgent:
 		"Changelogged v0.1 ([https://github.com/EpicPuppy613/changelogged])",
+
+	retryPause: 2000,
+	silent: true,
+	suppressAPIWarnings: true,
 });
 
 interface VersionResponse {
@@ -78,6 +84,7 @@ for (let i = 0; i < versionOrder.length; i++) {
 	versionMap[versionOrder[i].title.version] = i;
 }
 const latest = versionOrder[versionOrder.length - 1];
+const latestIndex = versionOrder.length - 1;
 
 interface PageOverview {
 	page: string;
@@ -102,9 +109,14 @@ for (const change of changes) {
 	page.changes[verindex].push(change.title.changed);
 }
 
+interface PageMeta {
+	status: string;
+	pageVersion?: number;
+}
+
 // Fetch all page information
-const pageStatus: {
-	[key: string]: string;
+const pageData: {
+	[key: string]: PageMeta;
 } = {};
 const statusColors: {
 	[key: string]: (s: string) => string;
@@ -130,8 +142,10 @@ async function getAllPages() {
 		}
 	}
 
+	let t = 0;
 	for (const p in pages) {
-		promises.push(getPage(p, getPageCallback));
+		promises.push(getPage(p, t * 25, getPageCallback));
+		t++;
 	}
 
 	for (const p of promises) {
@@ -139,36 +153,49 @@ async function getAllPages() {
 	}
 }
 
-async function getPage(p: string, callback: () => void) {
+async function getPage(p: string, offset: number, callback: () => void) {
+	// Wait a bit to combat too many requests error
+	await new Promise((r) => setTimeout(r, offset));
 	const content = await bot.read(p);
 	// Check if page exists
 	if (content.missing) {
-		pageStatus[p] = "noExist";
+		pageData[p] = { status: "noExist" };
 		callback();
 		return;
 	}
 	const text = content.revisions![0].content!;
 	if (!text.includes("<!--BEGIN HISTORY-->")) {
 		if (!text.includes("{{NAW Changelist}}")) {
-			pageStatus[p] = "noTarget";
+			pageData[p] = { status: "noTarget" };
 			callback();
 			return;
 		}
-		pageStatus[p] = "toCreate";
+		pageData[p] = { status: "toCreate" };
 	} else {
 		const regex = /<!--HISTORY META: (\w* *v\d+.\d+)-->/.exec(text);
 		if (regex === null || regex[1] === undefined) {
-			pageStatus[p] = "noMeta";
+			pageData[p] = { status: "noMeta" };
 			callback();
 			return;
 		}
 		const versionMeta = regex[1];
-		if (versionMeta == latest.title.version) {
-			pageStatus[p] = "upToDate";
+		// Manual update override
+		if (FORCE_UPDATE) {
+			pageData[p] = { status: "toUpdate" };
 			callback();
 			return;
 		}
-		pageStatus[p] = "toUpdate";
+		// Check if there have been any changes since that version
+		const versionIndex = versionMap[versionMeta];
+		for (const v of Object.keys(pages[p].changes)) {
+			if (parseInt(v) <= versionIndex) {
+				continue;
+			}
+			pageData[p] = { status: "toUpdate" };
+			callback();
+			return;
+		}
+		pageData[p] = { status: "upToDate" };
 	}
 	callback();
 }
@@ -212,7 +239,7 @@ for (const page of pageSort) {
 	process.stdout.write(
 		ch.magenta(changes.toString().padStart(2, " ")) +
 			ch.gray(" - ") +
-			statusColors[pageStatus[page]](pageName),
+			statusColors[pageData[page].status](pageName),
 	);
 	l++;
 	if (l % COLUMNS == 0) {
@@ -234,28 +261,53 @@ if (
 	process.exit();
 }
 
-let pushCount = Object.keys(pages).filter(
-	(p) => !["noExist", "noTarget", "noMeta", "upToDate"].includes(pageStatus[p]),
-).length;
-let i = 0;
+async function pushAllPages() {
+	let i = 0;
+	let totalCount = Object.keys(pages).filter(
+		(p) =>
+			!["noExist", "noTarget", "noMeta", "upToDate"].includes(
+				pageData[p].status,
+			),
+	).length;
+	let promises: Promise<void>[] = [];
 
-// Begin making changes to the wiki
-for (const p in pages) {
+	function pushPageCallback() {
+		i++;
+		process.stdout.write(ch.gray(`[INFO] Pushed Page ${i}/${totalCount}`));
+		if (i < Object.keys(pages).length) {
+			process.stdout.write("\r");
+		}
+	}
+
+	let t = 0;
+	for (const p in pages) {
+		promises.push(pushPage(p, t * 50, pushPageCallback));
+		t++;
+	}
+
+	for (const p of promises) {
+		await p;
+	}
+}
+
+async function pushPage(p: string, offset: number, callback: () => void) {
+	// Wait a bit to combat too many requests error
+	await new Promise((r) => setTimeout(r, offset));
 	const page = pages[p];
 	// Check if page needs to be processed
-	if (["noExist", "noTarget", "noMeta", "upToDate"].includes(pageStatus[p])) {
-		continue;
+	if (
+		["noExist", "noTarget", "noMeta", "upToDate"].includes(pageData[p].status)
+	) {
+		return;
 	}
-	i++;
-	process.stdout.write(ch.magenta(`[INFO] Pushing ${i}/${pushCount}\r`));
-	const content = await bot.read(p);
+	const content = await bot.read(p, {});
 	// Check if page has a history section
 	const text = content.revisions![0].content!;
 	let outText: string = "";
 	let before: string;
 	let after: string;
 
-	if (pageStatus[p] == "toCreate") {
+	if (pageData[p].status == "toCreate") {
 		const split = text.split("{{NAW Changelist}}");
 		before = split[0];
 		after = split[1];
@@ -287,7 +339,10 @@ for (const p in pages) {
 			'\n|-\n|style="text-align:center;width:20%"|[[' +
 			versionOrder[v].title.version +
 			']]||style="width:80%"|\n' +
-			page.changes[v].map((a) => "* " + a).join("\n");
+			page.changes[v]
+				.reverse()
+				.map((a) => "* " + a)
+				.join("\n");
 	}
 	outText += "\n|}\n" + "<!--END HISTORY-->";
 	//console.log(ch.blue(`[INFO][${p}] Generated new history overview`));
@@ -299,5 +354,8 @@ for (const p in pages) {
 			bot: true,
 		},
 	);
-	console.log(ch.green(`[INFO][${p}] Pushed to wiki`));
+	console.log(ch.green(`[INFO] Pushed ${ch.blueBright(p)} to wiki`));
+	callback();
 }
+
+await pushAllPages();
