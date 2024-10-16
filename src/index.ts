@@ -8,22 +8,44 @@ const ch = new Chalk();
 const FORCE_UPDATE = false;
 
 // Read config file
-const config = JSON.parse(readFileSync("./config.json", "utf-8")) as {
+let config: {
 	username?: string;
 	password?: string;
-};
-
-if (!config.username || !config.password) {
-	throw new Error(
-		"Config file is incomplete! Please create a 'config.json' and provide a bot 'username' and 'password'.",
+	wiki?: string;
+	"max-page-length"?: number;
+	"page-columns"?: number;
+} = {};
+try {
+	config = JSON.parse(readFileSync("./config.json", "utf-8"));
+} catch (e: any) {
+	console.log(
+		ch.red("[ERR] Config file does not exist! Please create a 'config.json'."),
 	);
 }
 
-console.log("Using bot username: " + config.username);
+if (!config.username || !config.password || !config.wiki) {
+	if (Object.keys(config).length > 0) {
+		console.log(ch.red("[ERR] Config file is incomplete!"));
+	}
+
+	if (!config.username) {
+		console.log(ch.yellow("[INFO] Config is missing value 'username'"));
+	}
+	if (!config.password) {
+		console.log(ch.yellow("[INFO] Config is missing value 'password'"));
+	}
+	if (!config.wiki) {
+		console.log(ch.yellow("[INFO] Config is missing value 'wiki'"));
+	}
+
+	process.exit(1);
+}
+
+console.log("[INFO] Using bot username: " + config.username);
 
 // Initialize bot and connect to wiki
 const bot = await Mwn.init({
-	apiUrl: "https://mcnations.wiki.gg/api.php",
+	apiUrl: config.wiki,
 
 	username: config.username,
 	password: config.password,
@@ -31,9 +53,10 @@ const bot = await Mwn.init({
 	userAgent:
 		"Changelogged v0.1 ([https://github.com/EpicPuppy613/changelogged])",
 
-	retryPause: 2000,
+	retryPause: 4000,
 	silent: true,
 	suppressAPIWarnings: true,
+	suppressInvalidDateWarning: true,
 });
 
 interface VersionResponse {
@@ -144,7 +167,7 @@ async function getAllPages() {
 
 	let t = 0;
 	for (const p in pages) {
-		promises.push(getPage(p, t * 25, getPageCallback));
+		promises.push(getPage(p, t * 250, getPageCallback));
 		t++;
 	}
 
@@ -204,8 +227,10 @@ console.log(ch.gray("[INFO] Retrieving Page Data..."));
 await getAllPages();
 
 // Page Overview Display Options
-const MAX_PAGE_LENGTH = 26;
-const COLUMNS = 3;
+const MAX_PAGE_LENGTH = config["max-page-length"]
+	? config["max-page-length"]
+	: 24;
+const COLUMNS = config["page-columns"] ? config["page-columns"] : 2;
 
 // Display an overview of every page and how many changes it has
 console.log(
@@ -226,7 +251,12 @@ console.log(
 
 const pageSort = Object.keys(pages).sort();
 let l = 0;
-for (const page of pageSort) {
+let columnOffset = Math.ceil(pageSort.length / COLUMNS);
+for (let i = 0; i < pageSort.length; i++) {
+	if (Math.floor(i / 3) + columnOffset * l >= pageSort.length) {
+		continue;
+	}
+	let page = pageSort[Math.floor(i / 3) + columnOffset * l];
 	let changes = 0;
 	for (const version in pages[page].changes) {
 		changes += pages[page].changes[version].length;
@@ -244,6 +274,7 @@ for (const page of pageSort) {
 	l++;
 	if (l % COLUMNS == 0) {
 		process.stdout.write("\n");
+		l = 0;
 	}
 }
 
@@ -278,10 +309,11 @@ async function pushAllPages() {
 			process.stdout.write("\r");
 		}
 	}
+	process.stdout.write(ch.gray(`[INFO] Pushed Page 0/${totalCount}\r`));
 
 	let t = 0;
 	for (const p in pages) {
-		promises.push(pushPage(p, t * 50, pushPageCallback));
+		promises.push(pushPage(p, t * 300, pushPageCallback));
 		t++;
 	}
 
@@ -339,10 +371,7 @@ async function pushPage(p: string, offset: number, callback: () => void) {
 			'\n|-\n|style="text-align:center;width:20%"|[[' +
 			versionOrder[v].title.version +
 			']]||style="width:80%"|\n' +
-			page.changes[v]
-				.reverse()
-				.map((a) => "* " + a)
-				.join("\n");
+			page.changes[v].map((a) => "* " + a).join("\n");
 	}
 	outText += "\n|}\n" + "<!--END HISTORY-->";
 	//console.log(ch.blue(`[INFO][${p}] Generated new history overview`));
