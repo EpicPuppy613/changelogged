@@ -2,6 +2,7 @@ import { Mwn } from "mwn";
 import { readFileSync } from "fs";
 import { confirm } from "@inquirer/prompts";
 import { Chalk } from "chalk";
+import page from "mwn/build/page.js";
 
 const ch = new Chalk();
 
@@ -134,8 +135,13 @@ for (const change of changes) {
 
 interface PageMeta {
 	status: string;
-	pageVersion?: number;
+	pageVersion?: string;
 }
+
+let nameMap = {
+	Alpha: "a",
+	Beta: "b",
+};
 
 // Fetch all page information
 const pageData: {
@@ -153,74 +159,49 @@ const statusColors: {
 };
 
 async function getAllPages() {
-	let i = 0;
-	let totalCount = Object.keys(pages).length;
-	let promises: Promise<void>[] = [];
+	const pageRequest = await bot.read(Object.keys(pages));
 
-	function getPageCallback() {
-		i++;
-		process.stdout.write(ch.gray(`[INFO] Retreived Page ${i}/${totalCount}`));
-		if (i < Object.keys(pages).length) {
-			process.stdout.write("\r");
-		}
-	}
-
-	let t = 0;
-	for (const p in pages) {
-		promises.push(getPage(p, t * 250, getPageCallback));
-		t++;
-	}
-
-	for (const p of promises) {
-		await p;
-	}
-}
-
-async function getPage(p: string, offset: number, callback: () => void) {
-	// Wait a bit to combat too many requests error
-	await new Promise((r) => setTimeout(r, offset));
-	const content = await bot.read(p);
-	// Check if page exists
-	if (content.missing) {
+	for (const r of pageRequest) {
+		let p = r.title;
+		let content = r;
+		// Check if page exists
 		pageData[p] = { status: "noExist" };
-		callback();
-		return;
-	}
-	const text = content.revisions![0].content!;
-	if (!text.includes("<!--BEGIN HISTORY-->")) {
-		if (!text.includes("{{NAW Changelist}}")) {
-			pageData[p] = { status: "noTarget" };
-			callback();
-			return;
+		if (content.missing) {
+			continue;
 		}
-		pageData[p] = { status: "toCreate" };
-	} else {
-		const regex = /<!--HISTORY META: (\w* *v\d+.\d+)-->/.exec(text);
-		if (regex === null || regex[1] === undefined) {
-			pageData[p] = { status: "noMeta" };
-			callback();
-			return;
-		}
-		const versionMeta = regex[1];
-		// Manual update override
-		if (FORCE_UPDATE) {
-			pageData[p] = { status: "toUpdate" };
-			callback();
-			return;
-		}
-		// Check if there have been any changes since that version
-		const versionIndex = versionMap[versionMeta];
-		for (const v of Object.keys(pages[p].changes)) {
-			if (parseInt(v) <= versionIndex) {
+		const text = content.revisions![0].content!;
+		if (!text.includes("<!--BEGIN HISTORY-->")) {
+			if (!text.includes("{{NAW Changelist}}")) {
+				pageData[p] = { status: "noTarget" };
 				continue;
 			}
-			pageData[p] = { status: "toUpdate" };
-			callback();
-			return;
+			pageData[p] = { status: "toCreate" };
+		} else {
+			const regex = /<!--HISTORY META: (\w* *v\d+.\d+)-->/.exec(text);
+			if (regex === null || regex[1] === undefined) {
+				pageData[p].status = "noMeta";
+				continue;
+			}
+			const versionMeta = regex[1];
+			pageData[p].pageVersion =
+				/v(\d+.\d+)/.exec(versionMeta)![1] +
+				(versionMeta.includes("Alpha") ? "a" : "b");
+			// Manual update override
+			if (FORCE_UPDATE) {
+				pageData[p].status = "toUpdate";
+				continue;
+			}
+			// Check if there have been any changes since that version
+			pageData[p].status = "upToDate";
+			const versionIndex = versionMap[versionMeta];
+			for (const v of Object.keys(pages[p].changes)) {
+				if (parseInt(v) > versionIndex) {
+					pageData[p].status = "toUpdate";
+					break;
+				}
+			}
 		}
-		pageData[p] = { status: "upToDate" };
 	}
-	callback();
 }
 
 console.log(ch.gray("[INFO] Retrieving Page Data..."));
@@ -234,9 +215,8 @@ const COLUMNS = config["page-columns"] ? config["page-columns"] : 2;
 
 // Display an overview of every page and how many changes it has
 console.log(
-	ch.blueBright(
-		"\n" +
-			" ".repeat((COLUMNS * (MAX_PAGE_LENGTH + 4) - 26) / 2) +
+	ch.blueBright.bold(
+		" ".repeat((COLUMNS * (MAX_PAGE_LENGTH + 16) - 26) / 2) +
 			"-- PAGE CHANGE OVERVIEW --",
 	),
 );
@@ -253,10 +233,10 @@ const pageSort = Object.keys(pages).sort();
 let l = 0;
 let columnOffset = Math.ceil(pageSort.length / COLUMNS);
 for (let i = 0; i < pageSort.length; i++) {
-	if (Math.floor(i / 3) + columnOffset * l >= pageSort.length) {
+	if (Math.floor(i / COLUMNS) + columnOffset * l >= pageSort.length) {
 		continue;
 	}
-	let page = pageSort[Math.floor(i / 3) + columnOffset * l];
+	let page = pageSort[Math.floor(i / COLUMNS) + columnOffset * l];
 	let changes = 0;
 	for (const version in pages[page].changes) {
 		changes += pages[page].changes[version].length;
@@ -265,11 +245,17 @@ for (let i = 0; i < pageSort.length; i++) {
 	if (pageName.length > MAX_PAGE_LENGTH) {
 		pageName = pageName.substring(0, MAX_PAGE_LENGTH);
 	}
-	pageName = pageName.padEnd(MAX_PAGE_LENGTH + 2, " ");
+	pageName = pageName.padEnd(MAX_PAGE_LENGTH + 1, " ");
+	let versionName =
+		(pageData[page].pageVersion ? pageData[page].pageVersion : "").padStart(
+			6,
+			" ",
+		) + " ";
 	process.stdout.write(
 		ch.magenta(changes.toString().padStart(2, " ")) +
 			ch.gray(" - ") +
-			statusColors[pageData[page].status](pageName),
+			statusColors[pageData[page].status](pageName) +
+			ch.gray(versionName),
 	);
 	l++;
 	if (l % COLUMNS == 0) {
@@ -280,6 +266,16 @@ for (let i = 0; i < pageSort.length; i++) {
 
 if (l % COLUMNS != 0) {
 	process.stdout.write("\n");
+}
+
+// If there are no pages to update, exit
+if (
+	Object.keys(pages).filter((p) =>
+		["toCreate", "toUpdate"].includes(pageData[p].status),
+	).length == 0
+) {
+	console.log(ch.greenBright("[INFO] No pages to update, exiting..."));
+	process.exit();
 }
 
 // Confirm prompt before making any changes to the wiki
@@ -313,7 +309,12 @@ async function pushAllPages() {
 
 	let t = 0;
 	for (const p in pages) {
-		promises.push(pushPage(p, t * 300, pushPageCallback));
+		if (
+			["noExist", "noTarget", "noMeta", "upToDate"].includes(pageData[p].status)
+		) {
+			continue;
+		}
+		promises.push(pushPage(p, t * 250, pushPageCallback));
 		t++;
 	}
 
@@ -326,13 +327,7 @@ async function pushPage(p: string, offset: number, callback: () => void) {
 	// Wait a bit to combat too many requests error
 	await new Promise((r) => setTimeout(r, offset));
 	const page = pages[p];
-	// Check if page needs to be processed
-	if (
-		["noExist", "noTarget", "noMeta", "upToDate"].includes(pageData[p].status)
-	) {
-		return;
-	}
-	const content = await bot.read(p, {});
+	const content = await bot.read(p);
 	// Check if page has a history section
 	const text = content.revisions![0].content!;
 	let outText: string = "";
